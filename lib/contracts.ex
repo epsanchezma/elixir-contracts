@@ -1,0 +1,2 @@
+defmodule Contracts do
+end
