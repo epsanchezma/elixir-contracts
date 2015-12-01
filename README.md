@@ -1,4 +1,4 @@
 Contracts
 =========
 
-Design by Contract in Elixir
+Design by Contract for Elixir
