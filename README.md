@@ -1,4 +1,4 @@
 Contracts
 =========
 
-** TODO: Add description **
+Design by Contract in Elixir
