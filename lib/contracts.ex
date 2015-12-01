@@ -1,51 +1,42 @@
 defmodule Contracts do
+  @default %{pre: true, post: true}
   defmacro __using__(_opts) do
+    {:ok, _} = Agent.start_link(fn -> @default end, name: __name__(__CALLER__))
     quote do
-      Module.register_attribute(__MODULE__, :requires, accumulate: true)
-      Module.register_attribute(__MODULE__, :ensures, accumulate: true)
-
-      @contracts %{}
-
       import Kernel, except: [def: 2]
-      import Contracts, only: [def: 2]
+      import Contracts
+      @before_compile unquote(__MODULE__)
     end
+  end
+
+  defmacro __before_compile__(env) do
+    :ok = Agent.stop(__name__(env))
+  end
+
+  def __name__(env), do: Module.concat(__MODULE__, env.module)
+
+  defmacro requires(pre) do
+    Agent.update(__name__(__CALLER__), &%{&1 | pre: pre})
+  end
+
+  defmacro ensures(post) do
+    Agent.update(__name__(__CALLER__), &%{&1 | post: post})
   end
 
   defmacro def(definition, do: content) do
-    function_name = case definition do
-      {:when, _, [{name, _, _params} | _guards] } -> name
-      {name, _, _} -> name
-    end
+    %{pre: pre, post: post} = Agent.get(__name__(__CALLER__), &(&1))
 
-    contracts = Module.get_attribute(__CALLER__.module, :contracts)
-    precondition = contracts[function_name][:requires]
-
-    quote do
-      Contracts.__on_definition__(__ENV__, unquote(function_name))
-      #contracts = Module.get_attribute(__ENV__.module, :contracts)
-      #precondition = contracts[unquote(function_name)][:requires]
+    ast = quote do
       Kernel.def(unquote(definition)) do
-        unless unquote(precondition), do: raise "Contract not met: blame the client"
+        unless unquote(pre), do: raise "Precondition not met: blame the client"
         var!(result) = unquote(content)
+        unless unquote(post), do: raise "Postcondition not met: blame yourself"
+
         var!(result)
       end
     end
-  end
+    Agent.update(__name__(__CALLER__), fn _ -> @default end)
 
-  def __on_definition__(env, function) do
-    mod = env.module
-
-    requires = Module.get_attribute(mod, :requires) |> List.first |> Code.string_to_quoted!
-    ensures = Module.get_attribute(mod, :ensures) |> List.first |> Code.string_to_quoted!
-    contract = %{requires: requires, ensures: ensures}
-
-    contracts = Module.get_attribute(mod, :contracts)
-
-    unless Map.has_key?(contracts, function) do
-      Module.put_attribute(mod, :contracts, Map.put(contracts, function, contract))
-    end
-
-    Module.delete_attribute(mod, :requires)
-    Module.delete_attribute(mod, :ensures)
+    ast
   end
 end
